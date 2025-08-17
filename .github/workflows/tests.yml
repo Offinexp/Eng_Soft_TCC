@@ -51,10 +51,10 @@ jobs:
       - name: Login e Configurar Nível de Segurança
         run: |
           echo "Iniciando sessão para configurar o nível de segurança..."
-          
+
           # 1. Pega a página de login para obter cookie e token CSRF
           LOGIN_PAGE=$(curl -s -c cookies.txt http://localhost:8080/login.php)
-          USER_TOKEN=$(echo "$LOGIN_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
+          USER_TOKEN=$(echo "$LOGIN_PAGE" | grep -oP 'name="user_token" value="\K[^"]+')
 
           if [ -z "$USER_TOKEN" ]; then
             echo "Erro: user_token não encontrado. DVWA pode não estar pronta."
@@ -67,12 +67,20 @@ jobs:
             --data "username=admin&password=password&Login=Login&user_token=$USER_TOKEN" \
             http://localhost:8080/login.php > /dev/null
 
-          # 3. Acessa a página de segurança para pegar token específico
-          SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
-          USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
+          # 3. Tenta pegar token da página de segurança com retry
+          for i in {1..5}; do
+            SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
+            USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep -oP 'name="user_token" value="\K[^"]+')
+            if [ -n "$USER_TOKEN_SEC" ]; then
+              echo "Token da página de segurança encontrado!"
+              break
+            fi
+            echo "Tentativa $i/5: token não encontrado, aguardando 5s..."
+            sleep 5
+          done
 
           if [ -z "$USER_TOKEN_SEC" ]; then
-            echo "Erro: token da página de segurança não encontrado."
+            echo "Erro: token da página de segurança não encontrado após múltiplas tentativas."
             exit 1
           fi
 
