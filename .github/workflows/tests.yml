@@ -55,6 +55,17 @@ jobs:
           CONTAINER_ID=$(docker ps -q -f ancestor=vulnerables/web-dvwa)
           docker exec $CONTAINER_ID mysql -uroot -ppassword -e "SHOW DATABASES;"
 
+      - name: Esperar DVWA ficar pronto
+        run: |
+          for i in {1..20}; do
+            if curl -s http://localhost:8080/login.php | grep -q "Login"; then
+              echo "DVWA pronto!"
+              break
+            fi
+            echo "Aguardando DVWA... ($i/20)"
+            sleep 5
+          done
+
       - name: Rodar testes de SQL Injection
         env:
           BASE_URL: "http://localhost:8080"
