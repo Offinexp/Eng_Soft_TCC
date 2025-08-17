@@ -59,29 +59,41 @@ jobs:
       - name: Login e Configurar Nível de Segurança
         run: |
           echo "Iniciando sessão para configurar o nível de segurança..."
-          # 1. Pega a página de login para obter o cookie da sessão e o token CSRF (user_token)
+
+          # 1. Pega token de login
           LOGIN_PAGE=$(curl -s -c cookies.txt http://localhost:8080/login.php)
           USER_TOKEN=$(echo "$LOGIN_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
 
-          # 2. Realiza o login usando o cookie e o token obtidos
+          # 2. Realiza login
           echo "Realizando login como admin..."
           curl -s -b cookies.txt -L \
             --data "username=admin&password=password&Login=Login&user_token=$USER_TOKEN" \
             http://localhost:8080/login.php > /dev/null
 
-          # 3. Acessa a página de segurança para obter um novo token CSRF específico dessa página
-          echo "Acessando a página de segurança..."
-          SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
-          USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
+          # 3. Pega token da página de segurança com retry
+          for i in {1..10}; do
+            SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
+            USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
+            if [ -n "$USER_TOKEN_SEC" ]; then
+              echo "Token da página de segurança encontrado!"
+              break
+            fi
+            echo "Tentativa $i/10: token da página de segurança não encontrado, aguardando 5s..."
+            sleep 5
+          done
 
-          # 4. Envia o formulário para alterar o nível de segurança para "Low"
+          if [ -z "$USER_TOKEN_SEC" ]; then
+            echo "Erro: token da página de segurança não encontrado após múltiplas tentativas."
+            exit 1
+          fi
+
+          # 4. Configura nível de segurança para "Low"
           echo "Configurando o nível de segurança para 'Low'..."
           curl -s -b cookies.txt -L \
             --data "security=Low&seclev_submit=Submit&user_token=$USER_TOKEN_SEC" \
             http://localhost:8080/security.php > /dev/null
 
-          # 5. Verifica se a alteração foi bem-sucedida
-          echo "Verificando a configuração..."
+          # 5. Verifica alteração
           FINAL_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
           if echo "$FINAL_PAGE" | grep -q "value=\"Low\" selected"; then
             echo "Nível de segurança configurado para 'Low' com sucesso."
