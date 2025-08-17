@@ -26,62 +26,63 @@ jobs:
       - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y default-mysql-client
+          sudo apt-get install -y default-mysql-client curl
 
       - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Esperar DVWA iniciar
+      - name: Esperar DVWA iniciar e criar banco
         run: |
-          echo "Aguardando DVWA ficar disponível..."
+          echo "Aguardando DVWA ficar totalmente pronto..."
           for i in {1..30}; do
-            if curl -s --fail http://localhost:8080/setup.php > /dev/null; then
-              echo "DVWA está no ar!"
-              exit 0
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/setup.php)
+            if [ "$STATUS" -eq 200 ]; then
+              curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
+              echo "Setup enviado, aguardando estabilização do banco..."
+              sleep 10
+              break
             fi
-            echo "Tentativa $i/30: DVWA ainda não respondeu"
+            echo "Tentativa $i/30: DVWA não pronta ainda..."
             sleep 5
           done
-          echo "Erro: DVWA não subiu a tempo." && exit 1
-
-      - name: Rodar setup do DVWA e garantir estabilidade
-        run: |
-          echo "Rodando setup do DVWA..."
-          curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
-          echo "Setup enviado. Aguardando 10 segundos para o banco de dados estabilizar..."
-          sleep 10
-          echo "Verificando se a página de login está pronta..."
-          curl --fail http://localhost:8080/login.php > /dev/null
-          echo "DVWA está pronto para os testes."
 
       - name: Login e Configurar Nível de Segurança
         run: |
           echo "Iniciando sessão para configurar o nível de segurança..."
-          # 1. Pega a página de login para obter o cookie da sessão e o token CSRF (user_token)
+          
+          # 1. Pega a página de login para obter cookie e token CSRF
           LOGIN_PAGE=$(curl -s -c cookies.txt http://localhost:8080/login.php)
           USER_TOKEN=$(echo "$LOGIN_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
-          
-          # 2. Realiza o login usando o cookie e o token obtidos
+
+          if [ -z "$USER_TOKEN" ]; then
+            echo "Erro: user_token não encontrado. DVWA pode não estar pronta."
+            exit 1
+          fi
+
+          # 2. Realiza login
           echo "Realizando login como admin..."
           curl -s -b cookies.txt -L \
             --data "username=admin&password=password&Login=Login&user_token=$USER_TOKEN" \
             http://localhost:8080/login.php > /dev/null
 
-          # 3. Acessa a página de segurança para obter um novo token CSRF específico dessa página
-          echo "Acessando a página de segurança..."
+          # 3. Acessa a página de segurança para pegar token específico
           SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
           USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
 
-          # 4. Envia o formulário para alterar o nível de segurança para "low"
-          echo "Configurando o nível de segurança para 'low'..."
+          if [ -z "$USER_TOKEN_SEC" ]; then
+            echo "Erro: token da página de segurança não encontrado."
+            exit 1
+          fi
+
+          # 4. Configura nível de segurança para 'low'
+          echo "Configurando nível de segurança para 'low'..."
           curl -s -b cookies.txt -L \
             --data "security=low&seclev_submit=Submit&user_token=$USER_TOKEN_SEC" \
             http://localhost:8080/security.php > /dev/null
-          
-          # 5. Verifica se a alteração foi bem-sucedida
-          echo "Verificando a configuração..."
+
+          # 5. Verifica alteração
           FINAL_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
           if echo "$FINAL_PAGE" | grep -q "value=\"low\" selected"; then
             echo "Nível de segurança configurado para 'low' com sucesso."
