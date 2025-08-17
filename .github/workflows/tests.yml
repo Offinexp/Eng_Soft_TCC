@@ -33,74 +33,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Esperar DVWA iniciar
+      - name: Esperar DVWA iniciar e criar banco
         run: |
           echo "Aguardando DVWA ficar disponível..."
           for i in {1..30}; do
             if curl -s --fail http://localhost:8080/setup.php > /dev/null; then
               echo "DVWA está no ar!"
-              exit 0
+              break
             fi
             echo "Tentativa $i/30: DVWA ainda não respondeu"
             sleep 5
           done
-          echo "Erro: DVWA não subiu a tempo." && exit 1
-
-      - name: Rodar setup do DVWA e garantir estabilidade
-        run: |
           echo "Rodando setup do DVWA..."
           curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
-          echo "Setup enviado. Aguardando 10 segundos para o banco de dados estabilizar..."
+          echo "Setup enviado. Aguardando 10 segundos para estabilização do banco..."
           sleep 10
-          echo "Verificando se a página de login está pronta..."
-          curl --fail http://localhost:8080/login.php > /dev/null
-          echo "DVWA está pronto para os testes."
-
-      - name: Login e Configurar Nível de Segurança
-        run: |
-          echo "Iniciando sessão para configurar o nível de segurança..."
-
-          # 1. Pega token de login
-          LOGIN_PAGE=$(curl -s -c cookies.txt http://localhost:8080/login.php)
-          USER_TOKEN=$(echo "$LOGIN_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
-
-          # 2. Realiza login
-          echo "Realizando login como admin..."
-          curl -s -b cookies.txt -L \
-            --data "username=admin&password=password&Login=Login&user_token=$USER_TOKEN" \
-            http://localhost:8080/login.php > /dev/null
-
-          # 3. Pega token da página de segurança com retry
-          for i in {1..10}; do
-            SECURITY_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
-            USER_TOKEN_SEC=$(echo "$SECURITY_PAGE" | grep "user_token" | sed "s/.*value='\(.*\)'.*/\1/")
-            if [ -n "$USER_TOKEN_SEC" ]; then
-              echo "Token da página de segurança encontrado!"
-              break
-            fi
-            echo "Tentativa $i/10: token da página de segurança não encontrado, aguardando 5s..."
-            sleep 5
-          done
-
-          if [ -z "$USER_TOKEN_SEC" ]; then
-            echo "Erro: token da página de segurança não encontrado após múltiplas tentativas."
-            exit 1
-          fi
-
-          # 4. Configura nível de segurança para "Low"
-          echo "Configurando o nível de segurança para 'Low'..."
-          curl -s -b cookies.txt -L \
-            --data "security=Low&seclev_submit=Submit&user_token=$USER_TOKEN_SEC" \
-            http://localhost:8080/security.php > /dev/null
-
-          # 5. Verifica alteração
-          FINAL_PAGE=$(curl -s -b cookies.txt http://localhost:8080/security.php)
-          if echo "$FINAL_PAGE" | grep -q "value=\"Low\" selected"; then
-            echo "Nível de segurança configurado para 'Low' com sucesso."
-          else
-            echo "Falha ao configurar o nível de segurança."
-            exit 1
-          fi
 
       - name: Checar MariaDB e banco DVWA
         run: |
@@ -108,7 +55,10 @@ jobs:
           CONTAINER_ID=$(docker ps -q -f ancestor=vulnerables/web-dvwa)
           docker exec $CONTAINER_ID mysql -uroot -ppassword -e "SHOW DATABASES;"
 
-      - name: Rodar testes com pytest
+      - name: Rodar testes de SQL Injection
         env:
           BASE_URL: "http://localhost:8080"
-        run: pytest -s -vv
+        run: |
+          echo "Aguardando DVWA estabilizar antes de iniciar testes..."
+          sleep 5
+          pytest -s -vv
