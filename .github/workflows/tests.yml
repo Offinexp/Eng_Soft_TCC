@@ -26,7 +26,7 @@ jobs:
       - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y default-mysql-client # ADICIONADO: Instala o cliente mysql para o passo de verificação do banco
+          sudo apt-get install -y default-mysql-client
 
       - name: Instalar dependências Python
         run: |
@@ -34,7 +34,6 @@ jobs:
           pip install -r requirements.txt
 
       - name: Esperar DVWA iniciar
-        # Este passo agora é o responsável por garantir que o DVWA está pronto.
         run: |
           echo "Aguardando DVWA ficar disponível..."
           for i in {1..30}; do
@@ -47,14 +46,19 @@ jobs:
           done
           echo "Erro: DVWA não subiu a tempo." && exit 1
 
-      - name: Rodar setup do DVWA
+      - name: Rodar setup do DVWA e garantir estabilidade
         run: |
           echo "Rodando setup do DVWA..."
-          # Usando a flag -L para seguir redirecionamentos, que ocorrem após o setup
-          curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database" > /dev/null
-          echo "Setup concluído!"
-          # Pequena pausa para o banco de dados ser totalmente criado
-          sleep 5
+          # Envia o formulário para criar/resetar o banco de dados. A flag -L segue o redirect para login.php
+          curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
+
+          echo "Setup enviado. Aguardando 10 segundos para o banco de dados estabilizar..."
+          sleep 10
+
+          echo "Verificando se a página de login está pronta..."
+          # Acessa a página de login para garantir que a aplicação está no estado esperado.
+          curl --fail http://localhost:8080/login.php
+          echo "DVWA está pronto para os testes."
 
       - name: Checar MariaDB e banco DVWA
         run: |
