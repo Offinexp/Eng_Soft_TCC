@@ -13,11 +13,6 @@ jobs:
         image: vulnerables/web-dvwa
         ports:
           - 8080:80
-        options: >-
-          --health-cmd "curl --silent --fail http://localhost:80/setup.php || exit 1"
-          --health-interval=10s
-          --health-timeout=10s
-          --health-retries=30
 
     steps:
       - name: Checkout do código
@@ -28,39 +23,45 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Instalar dependências
+      - name: Instalar dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-mysql-client # ADICIONADO: Instala o cliente mysql para o passo de verificação do banco
+
+      - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Esperar DVWA iniciar
+        # Este passo agora é o responsável por garantir que o DVWA está pronto.
         run: |
           echo "Aguardando DVWA ficar disponível..."
           for i in {1..30}; do
-            if curl -s http://localhost:8080/setup.php > /dev/null; then
+            if curl -s --fail http://localhost:8080/setup.php > /dev/null; then
               echo "DVWA está no ar!"
               exit 0
             fi
             echo "Tentativa $i/30: DVWA ainda não respondeu"
             sleep 5
           done
-          echo "DVWA não subiu a tempo" && exit 1
+          echo "Erro: DVWA não subiu a tempo." && exit 1
 
       - name: Rodar setup do DVWA
         run: |
           echo "Rodando setup do DVWA..."
-          curl -s -X POST http://localhost:8080/setup.php --data "create_db=Create%2B%2BSubmit" > /dev/null
+          # Usando a flag -L para seguir redirecionamentos, que ocorrem após o setup
+          curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database" > /dev/null
           echo "Setup concluído!"
+          # Pequena pausa para o banco de dados ser totalmente criado
+          sleep 5
 
       - name: Checar MariaDB e banco DVWA
         run: |
           echo "Verificando MariaDB e banco DVWA..."
           CONTAINER_ID=$(docker ps -q -f ancestor=vulnerables/web-dvwa)
-          for i in {1..20}; do
-            docker exec $CONTAINER_ID mysql -uroot -proot -e "SHOW DATABASES;" && break
-            echo "Tentativa $i/20: MariaDB ainda não está pronto..."
-            sleep 5
-          done
+          # A senha padrão é 'password', não 'root'
+          docker exec $CONTAINER_ID mysql -uroot -ppassword -e "SHOW DATABASES;"
 
       - name: Rodar testes com pytest
         env:
