@@ -1,20 +1,26 @@
 name: Testes de Segurança com DVWA
 
+# Define os gatilhos para o workflow
 on:
+  # Executa em pushes para os branches principais
   push:
+    branches: [ main, master ]
+  # Executa em pull requests para os branches principais
   pull_request:
+    branches: [ main, master ]
+  # Permite que você execute este workflow manualmente na aba "Actions"
+  workflow_dispatch:
 
 jobs:
   sqli-tests:
     runs-on: ubuntu-latest
 
-    # Define o container de serviço para o DVWA
     services:
       dvwa:
         image: vulnerables/web-dvwa
-
         ports:
           - 8080:80
+        # Garante que o container esteja respondendo antes de iniciar os testes
         options: --health-cmd "curl -f http://localhost/setup.php || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
@@ -31,15 +37,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Resetar o banco de dados do DVWA
+      - name: Resetar o banco de dados do DVWA (com token CSRF)
         run: |
-          echo "Serviço DVWA passou na verificação de saúde. Aguardando inicialização completa..."
-          sleep 15
+          echo "Aguardando inicialização completa do serviço..."
+          sleep 10
           
+          echo "Obtendo token CSRF da página de setup..."
+          # 1. Visita a página para obter um cookie de sessão e extrair o user_token.
+          USER_TOKEN=$(curl -s -c cookies.txt http://localhost:8080/setup.php | grep 'user_token' | sed -n "s/.*value='\(.*\)'.*/\1/p")
+          
+          if [ -z "$USER_TOKEN" ]; then
+            echo "::error::Falha ao obter o token CSRF (user_token) da página de setup."
+            exit 1
+          fi
+          echo "Token CSRF obtido com sucesso."
+
           echo "Enviando requisição para criar/resetar o banco de dados..."
-          # Acessa o serviço via localhost na porta mapeada.
-          # O -L segue redirecionamentos, o que é importante caso o setup redirecione para o login.
-          curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
+          # 2. Envia o POST para criar o DB, incluindo o token CSRF e os cookies.
+          curl -s -L -b cookies.txt -X POST http://localhost:8080/setup.php \
+            --data-urlencode "user_token=${USER_TOKEN}" \
+            --data-urlencode "create_db=Create / Reset Database"
           
           echo "Banco de dados resetado. Aguardando 20 segundos para a aplicação estabilizar..."
           sleep 20
@@ -47,11 +64,9 @@ jobs:
       - name: Verificar se a página de login está pronta
         run: |
           echo "Verificando se a página de login está acessível após o reset do DB..."
-          # O grep -i torna a busca por "Login" case-insensitive, o que é mais robusto.
           curl -s --fail http://localhost:8080/login.php | grep -i "Login"
 
       - name: Rodar testes de SQL Injection
-        # Define a variável de ambiente para que os testes saibam onde encontrar o DVWA.
         env:
           BASE_URL: "http://localhost:8080"
         run: |
