@@ -1,4 +1,4 @@
-name: Testes Segurança
+name: Testes de Segurança com DVWA
 
 on:
   push:
@@ -8,68 +8,51 @@ jobs:
   sqli-tests:
     runs-on: ubuntu-latest
 
+    # Define o container de serviço para o DVWA
     services:
       dvwa:
         image: vulnerables/web-dvwa
+
         ports:
           - 8080:80
+        options: --health-cmd "curl -f http://localhost/setup.php || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Instalar dependências do sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y default-mysql-client
 
       - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Esperar DVWA iniciar e criar banco
+      - name: Resetar o banco de dados do DVWA
         run: |
-          echo "Aguardando DVWA ficar disponível..."
-          for i in {1..30}; do
-            if curl -s --fail http://localhost:8080/setup.php > /dev/null; then
-              echo "DVWA está no ar!"
-              break
-            fi
-            echo "Tentativa $i/30: DVWA ainda não respondeu"
-            sleep 5
-          done
-          echo "Rodando setup do DVWA..."
+          echo "Serviço DVWA passou na verificação de saúde. Aguardando inicialização completa..."
+          sleep 15
+          
+          echo "Enviando requisição para criar/resetar o banco de dados..."
+          # Acessa o serviço via localhost na porta mapeada.
+          # O -L segue redirecionamentos, o que é importante caso o setup redirecione para o login.
           curl -s -L -X POST http://localhost:8080/setup.php --data "create_db=Create+%2F+Reset+Database"
-          echo "Setup enviado. Aguardando 10 segundos para estabilização do banco..."
-          sleep 10
+          
+          echo "Banco de dados resetado. Aguardando 20 segundos para a aplicação estabilizar..."
+          sleep 20
 
-      - name: Checar MariaDB e banco DVWA
+      - name: Verificar se a página de login está pronta
         run: |
-          echo "Verificando MariaDB e banco DVWA..."
-          CONTAINER_ID=$(docker ps -q -f ancestor=vulnerables/web-dvwa)
-          docker exec $CONTAINER_ID mysql -uroot -ppassword -e "SHOW DATABASES;"
-
-      - name: Esperar DVWA ficar pronto
-        run: |
-          for i in {1..20}; do
-            if curl -s http://localhost:8080/login.php | grep -q "Login"; then
-              echo "DVWA pronto!"
-              break
-            fi
-            echo "Aguardando DVWA... ($i/20)"
-            sleep 5
-          done
+          echo "Verificando se a página de login está acessível após o reset do DB..."
+          # O grep -i torna a busca por "Login" case-insensitive, o que é mais robusto.
+          curl -s --fail http://localhost:8080/login.php | grep -i "Login"
 
       - name: Rodar testes de SQL Injection
+        # Define a variável de ambiente para que os testes saibam onde encontrar o DVWA.
         env:
           BASE_URL: "http://localhost:8080"
         run: |
-          echo "Aguardando DVWA estabilizar antes de iniciar testes..."
-          sleep 5
           pytest -s -vv
