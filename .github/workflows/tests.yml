@@ -20,9 +20,8 @@ jobs:
         image: vulnerables/web-dvwa
         ports:
           - 8080:80
-        # Garante que o container esteja respondendo antes de iniciar os testes
-        # Adicionado --health-start-period para dar tempo ao container de iniciar
-        options: --health-cmd "curl -f http://localhost/setup.php || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5 --health-start-period 30s
+        # A verificação de saúde automática (healthcheck) foi removida.
+        # A verificação de prontidão será feita manualmente no script abaixo.
 
     steps:
       - name: Checkout do código
@@ -38,13 +37,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Resetar o banco de dados do DVWA (com token CSRF)
+      - name: Aguardar DVWA e Resetar Banco de Dados
         run: |
-          echo "Aguardando inicialização completa do serviço..."
-          sleep 10
+          echo "Aguardando o serviço DVWA ficar disponível..."
+          # Loop que tenta se conectar ao DVWA por até 2 minutos.
+          for i in {1..24}; do
+            if curl -s --fail http://localhost:8080/login.php > /dev/null; then
+              echo "DVWA está online!"
+              break
+            fi
+            echo "Tentativa $i/24: DVWA ainda não respondeu. Aguardando 5 segundos..."
+            sleep 5
+          done
+
+          # Verifica se o loop terminou sem sucesso
+          if ! curl -s --fail http://localhost:8080/login.php > /dev/null; then
+            echo "::error::O serviço DVWA não ficou disponível após 2 minutos."
+            exit 1
+          fi
           
           echo "Obtendo token CSRF da página de setup..."
-          # 1. Visita a página para obter um cookie de sessão e extrair o user_token.
           USER_TOKEN=$(curl -s -c cookies.txt http://localhost:8080/setup.php | grep 'user_token' | sed -n "s/.*value='\(.*\)'.*/\1/p")
           
           if [ -z "$USER_TOKEN" ]; then
@@ -54,7 +66,6 @@ jobs:
           echo "Token CSRF obtido com sucesso."
 
           echo "Enviando requisição para criar/resetar o banco de dados..."
-          # 2. Envia o POST para criar o DB, incluindo o token CSRF e os cookies.
           curl -s -L -b cookies.txt -X POST http://localhost:8080/setup.php \
             --data-urlencode "user_token=${USER_TOKEN}" \
             --data-urlencode "create_db=Create / Reset Database"
