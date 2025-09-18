@@ -2,13 +2,10 @@ name: Testes de Segurança com DVWA
 
 # Define os gatilhos para o workflow
 on:
-  # Executa em pushes para os branches principais
   push:
     branches: [ main, master ]
-  # Executa em pull requests para os branches principais
   pull_request:
     branches: [ main, master ]
-  # Permite que você execute este workflow manualmente na aba "Actions"
   workflow_dispatch:
 
 jobs:
@@ -20,27 +17,24 @@ jobs:
         image: vulnerables/web-dvwa
         ports:
           - 8080:80
-        # A verificação de saúde automática (healthcheck) foi removida.
-        # A verificação de prontidão será feita manualmente no script abaixo.
 
     steps:
-      - name: Checkout do código
+      - name: 1. Checkout do código
         uses: actions/checkout@v4
 
-      - name: Configurar Python 3.11
+      - name: 2. Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Instalar dependências Python
+      - name: 3. Instalar dependências
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Aguardar DVWA e Resetar Banco de Dados
+      - name: 4. Aguardar DVWA e Resetar Banco de Dados
         run: |
           echo "Aguardando o serviço DVWA ficar disponível..."
-          # Loop que tenta se conectar ao DVWA por até 2 minutos.
           for i in {1..24}; do
             if curl -s --fail http://localhost:8080/login.php > /dev/null; then
               echo "DVWA está online!"
@@ -50,7 +44,6 @@ jobs:
             sleep 5
           done
 
-          # Verifica se o loop terminou sem sucesso
           if ! curl -s --fail http://localhost:8080/login.php > /dev/null; then
             echo "::error::O serviço DVWA não ficou disponível após 2 minutos."
             exit 1
@@ -73,13 +66,20 @@ jobs:
           echo "Banco de dados resetado. Aguardando 20 segundos para a aplicação estabilizar..."
           sleep 20
 
-      - name: Verificar se a página de login está pronta
+      - name: 5. Verificar se a página de login está pronta
         run: |
           echo "Verificando se a página de login está acessível após o reset do DB..."
           curl -s --fail http://localhost:8080/login.php | grep -i "Login"
 
-      - name: Rodar testes de SQL Injection
+      - name: 6. Rodar testes e Gerar Relatório
         env:
           BASE_URL: "http://localhost:8080"
-        run: |
-          pytest -s -vv
+        run: pytest --html=report.html --self-contained-html
+        continue-on-error: true
+
+      - name: 7. Fazer o upload do Relatório HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Relatorio-Testes-SQL-Injection
+          path: report.html

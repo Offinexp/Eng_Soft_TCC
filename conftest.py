@@ -1,45 +1,75 @@
-import time
+# Este código deve estar no arquivo conftest.py
+
 import pytest
 
+# Lista para armazenar os resultados de cada teste
 test_results = []
 
-@pytest.hookimpl(tryfirst=True, hookwrapper=True)
-def pytest_runtest_call(item):
-    start_time = time.time()
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """
+    Hook para capturar o resultado de cada teste executado.
+    """
     outcome = yield
-    duration = time.time() - start_time
+    report = outcome.get_result()
 
-    result = outcome.get_result()
-    if result is None:  # Ignora quando não há resultado (ex: teardown)
-        return
+    if report.when == "call":
+        level = item.callspec.params.get("level", "N/A") if hasattr(item, "callspec") else "N/A"
+        
+        # --- LÓGICA ATUALIZADA AQUI ---
+        # Define se a vulnerabilidade era esperada com base no nível
+        vulnerabilidade_esperada = level in ["low", "medium"]
+        
+        # Lógica para os testes de Piggybacked e Error-Based que possuem expectativas diferentes
+        if "piggybacked" in item.name or "error_based" in item.name:
+            vulnerabilidade_esperada = level in ["low"]
+            
+        # Define a mensagem de resultado obtido com base no status do teste E na expectativa
+        if report.passed:
+            if vulnerabilidade_esperada:
+                obtido = "✅ Vulnerabilidade detectada (Esperado)"
+            else:
+                obtido = "✅ Nenhuma vulnerabilidade (Esperado)"
+        elif report.failed:
+            if vulnerabilidade_esperada:
+                obtido = "❌ ERRO: Vulnerabilidade NÃO detectada"
+            else:
+                obtido = "❌ ERRO: Falso positivo detectado"
+        else: # report.skipped
+            obtido = "⚠️ Teste pulado (skipped)"
 
-    test_id = item.name
-    level = item.callspec.params.get("level", "N/A") if hasattr(item, "callspec") else "N/A"
-
-    test_results.append({
-        "teste": test_id,
-        "level": level,
-        "passou": result.passed,
-        "tempo": round(duration, 2),
-        "esperado": "Detectar vulnerabilidade",
-        "obtido": "Detectado" if result.passed else "Não detectado"
-    })
+        test_results.append({
+            "teste": report.nodeid.split("::")[-1],
+            "level": level,
+            "passou": report.passed,
+            "tempo": report.duration,
+            "obtido": obtido
+        })
 
 def pytest_sessionfinish(session, exitstatus):
-    print("\n===== RELATÓRIO FINAL DE TESTES SQL INJECTION =====")
+    """
+    Hook executado no final de toda a sessão de testes para imprimir o relatório.
+    """
+    print("\n\n===== RELATÓRIO FINAL DE TESTES SQL INJECTION =====")
     if not test_results:
-        print("Nenhum teste foi executado.")
+        print("Nenhum resultado de teste foi coletado.")
         return
 
-    header = f"{'Teste':<30} | {'Level':<10} | {'Status':<8} | {'Esperado':<25} | {'Obtido':<25} | {'Tempo (s)':<10}"
+    # Cabeçalho da tabela (com colunas ajustadas)
+    header = f"{'Teste':<50} | {'Nível':<12} | {'Status':<8} | {'Resultado Obtido':<40} | {'Tempo (s)':<10}"
     separator = "-" * len(header)
-
     print(header)
     print(separator)
 
+    # Imprime cada linha do resultado
     for r in test_results:
         status = "Passou" if r["passou"] else "Falhou"
-        print(f"{r['teste']:<30} | {r['level']:<10} | {status:<8} | {r['esperado']:<25} | {r['obtido']:<25} | {r['tempo']:<10}")
+        tempo_formatado = f"{r['tempo']:.2f}"
+        print(f"{r['teste']:<50} | {r['level']:<12} | {status:<8} | {r['obtido']:<40} | {tempo_formatado:<10}")
 
+    # Rodapé com o resumo
+    total_passou = sum(1 for t in test_results if t["passou"])
+    total_falhou = len(test_results) - total_passou
     print(separator)
-    print(f"Total de testes: {len(test_results)} | Passaram: {sum(t['passou'] for t in test_results)} | Falharam: {sum(not t['passou'] for t in test_results)}")
+    print(f"Total de testes: {len(test_results)} | ✅ Passaram: {total_passou} | ❌ Falharam: {total_falhou}")
+    print("=" * len(header))
