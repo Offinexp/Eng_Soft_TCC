@@ -16,11 +16,9 @@ def pytest_runtest_makereport(item, call):
     if report.when == "call":
         level = item.callspec.params.get("level", "N/A") if hasattr(item, "callspec") else "N/A"
         
-        # --- LÓGICA ATUALIZADA AQUI ---
-        # Define se a vulnerabilidade era esperada com base no nível
+
         vulnerabilidade_esperada = level in ["low", "medium"]
         
-        # Lógica para os testes de Piggybacked e Error-Based que possuem expectativas diferentes
         if "piggybacked" in item.name or "error_based" in item.name:
             vulnerabilidade_esperada = level in ["low"]
             
@@ -55,7 +53,7 @@ def pytest_sessionfinish(session, exitstatus):
         print("Nenhum resultado de teste foi coletado.")
         return
 
-    # Cabeçalho da tabela (com colunas ajustadas)
+    # Cabeçalho da tabela 
     header = f"{'Teste':<50} | {'Nível':<12} | {'Status':<8} | {'Resultado Obtido':<40} | {'Tempo (s)':<10}"
     separator = "-" * len(header)
     print(header)
@@ -71,5 +69,6 @@ def pytest_sessionfinish(session, exitstatus):
     total_passou = sum(1 for t in test_results if t["passou"])
     total_falhou = len(test_results) - total_passou
     print(separator)
-    print(f"Total de testes: {len(test_results)} | ✅ Passaram: {total_passou} | ❌ Falharam: {total_falhou}")
+    print(f"Total de testes:
+     {len(test_results)} | ✅ Passaram: {total_passou} | ❌ Falharam: {total_falhou}")
     print("=" * len(header))
