@@ -69,6 +69,5 @@ def pytest_sessionfinish(session, exitstatus):
     total_passou = sum(1 for t in test_results if t["passou"])
     total_falhou = len(test_results) - total_passou
     print(separator)
-    print(f"Total de testes:
-     {len(test_results)} | ✅ Passaram: {total_passou} | ❌ Falharam: {total_falhou}")
+    print(f"Total de testes: {len(test_results)} | ✅ Passaram: {total_passou} | ❌ Falharam: {total_falhou}")
     print("=" * len(header))
