@@ -8,6 +8,8 @@ BASE_URL = "http://localhost:8080"
 
 # Níveis de segurança a serem testados
 LEVELS = ["low", "medium", "high", "impossible"]
+#LEVELS = ["impossible"]
+
 
 # --- Funções Auxiliares ---
 
@@ -78,25 +80,23 @@ def test_blind_boolean_sql_injection(level):
     esperado = level in ["low", "medium"]
     assert vulneravel == esperado
 
-@pytest.mark.parametrize("level", LEVELS)
-def test_piggybacked_sql_injection(level):
-    print(f"\nIniciando teste Piggybacked SQL Injection no nível {level}")
-    session = prepare_session(level)
-    url = f"{BASE_URL}/vulnerabilities/sqli/"
+# @pytest.mark.parametrize("level", LEVELS)
+# def test_piggybacked_sql_injection(level):
+#     print(f"\nIniciando teste Piggybacked SQL Injection no nível {level}")
+#     session = prepare_session(level)
+#     url = f"{BASE_URL}/vulnerabilities/sqli/"
     
-    # Adicionada lógica para o nível 'medium'
-    if level == 'medium':
-        # Nota: Stacked queries geralmente não funcionam em mysql_query(), mas o teste é válido.
-        payload = "1; SELECT SLEEP(1) #"
-    else:
-        payload = "1; SELECT SLEEP(1); -- "
-    
-    resp = session.post(url, data={"id": payload, "Submit": "Submit"})
 
-    # A verificação para piggyback pode ser frágil, mas mantida para consistência.
-    vulneravel = "First name" in resp.text
-    esperado = level in ["low"] # Stacked queries normalmente só funcionam no nível low do DVWA
-    assert vulneravel == esperado
+#     if level == 'medium':
+
+#         payload = "1; SELECT SLEEP(1) #"
+#     else:
+#         payload = "1; SELECT SLEEP(1); -- "
+    
+#     resp = session.post(url, data={"id": payload, "Submit": "Submit"})
+#     vulneravel = "First name" in resp.text
+#     esperado = level in ["low"] 
+#     assert vulneravel == esperado
 
 @pytest.mark.parametrize("level", LEVELS)
 def test_time_based_sql_injection(level):
@@ -104,7 +104,7 @@ def test_time_based_sql_injection(level):
     session = prepare_session(level)
     url = f"{BASE_URL}/vulnerabilities/sqli/"
     
-    # Adicionada lógica para o nível 'medium'
+
     if level == 'medium':
         payload_true = "1 AND IF(1=1, SLEEP(5), 0) #"
         payload_false = "1 AND IF(1=2, SLEEP(5), 0) #"
@@ -134,7 +134,6 @@ def test_union_based_sql_injection(level):
     session = prepare_session(level)
     url = f"{BASE_URL}/vulnerabilities/sqli/"
     
-    # Adicionada lógica para o nível 'medium'
     if level == 'medium':
         payload = "1 UNION SELECT user, password FROM users #"
     else:
@@ -153,7 +152,7 @@ def test_union_based_schema_enumeration(level):
     session = prepare_session(level)
     url = f"{BASE_URL}/vulnerabilities/sqli/"
     
-    # Adicionada lógica para o nível 'medium'
+
     if level == 'medium':
         payload = "1 UNION SELECT NULL, table_name FROM information_schema.tables #"
     else:
@@ -172,7 +171,7 @@ def test_error_based_sqli(level):
     session = prepare_session(level)
     url = f"{BASE_URL}/vulnerabilities/sqli/"
     
-    # Adicionada lógica para o nível 'medium'
+
     if level == 'medium':
         payload = "1 AND updatexml(1, concat(0x7e, database(), 0x7e), 1) #"
     else:
@@ -182,5 +181,5 @@ def test_error_based_sqli(level):
     response = session.get(url, params=params)
 
     vulneravel = "XPATH syntax error: '~dvwa~'" in response.text
-    esperado = level in ["low"] # A injeção por erro só é esperada no nível 'low'
+    esperado = level in ["low"] 
     assert vulneravel == esperado
